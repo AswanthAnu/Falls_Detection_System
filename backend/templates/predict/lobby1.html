@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fall Detection System</title>
+    <link rel="stylesheet" href="{% static 'css/lobby1.css' %}">
+
+
+    <style>
+        /* Add some basic styles to ensure full-screen layout */
+        
+    </style>
+</head>
+<body>
+    <div class="navbar">Fall Detection System</div>
+
+    <div class="container">
+        <div class="left">
+            <h2>How to Use</h2>
+            <p>Welcome to the Fall Detection System. To use this system:</p>
+            <ul>
+                <li>Click the "Let's Begin" button on the right.</li>
+                <li>Allow access to your webcam when prompted.</li>
+                <li>The system will start analyzing the live feed and detect falls.</li>
+                <li>If a fall is detected, an alert will be triggered.</li>
+            </ul>
+        </div>
+
+        <div class="right">
+            <button class="btn" onclick="openPopup()">Let's Begin</button>
+        </div>
+    </div>
+
+    <div id="popup" class="popup">
+        <div id="videoContainer">
+            <video id="webcam" autoplay muted playsinline width="100%" style="display: none;"></video>
+            <img id="annotatedFeed" width="100%" alt="Camera feed not available" style="display: none;" />
+            <p id="predictionText" style="font-size: 18px; margin-top: 10px; text-align: center;"></p>
+            <p id="loadingText" style="display: none;">Loading...</p>
+        </div>
+        <button id="webcamButton" class="btn" onclick="startWebcam()">Connect Webcam</button>
+        <button id="closeButton" class="btn" onclick="closePopup()" style="background-color: grey; display: none;">Close</button>
+    </div>
+
+    <footer>
+        <p>This is just a prototype website for the Fall Detection System.</p>
+        <p>Check out my GitHub: <a href="https://github.com/AswanthAnu/Falls_Detection_System" target="_blank" style="color: lightblue;">GitHub Repository</a></p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+        const popup = document.getElementById('popup');
+        const webcam = document.getElementById('webcam');
+        const annotatedFeed = document.getElementById('annotatedFeed');
+        const predictionText = document.getElementById('predictionText');
+        const loadingText = document.getElementById('loadingText');
+        const webcamButton = document.getElementById('webcamButton');
+        const closeButton = document.getElementById('closeButton');
+
+        let videoStream = null;
+        let captureInterval = null;
+        let socket = null; // 🆕 We'll create socket dynamically
+
+        function openPopup() {
+            popup.style.display = 'flex';
+            closeButton.style.display = 'none';
+            webcamButton.style.display = 'block';
+            webcamButton.disabled = false;
+        }
+
+        function closePopup() {
+            popup.style.display = 'none';
+
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                videoStream = null;
+            }
+
+            clearInterval(captureInterval);
+
+            if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+                socket.close();
+                socket = null;
+            }
+
+            annotatedFeed.style.display = 'none';
+            predictionText.innerText = '';
+        }
+
+        function startWebcam() {
+            loadingText.style.display = 'block';
+            webcamButton.disabled = true;
+
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => {
+                    webcam.srcObject = stream;
+                    videoStream = stream;
+                    webcam.style.display = 'none'; // Keep webcam hidden
+
+                    webcam.onloadedmetadata = () => {
+                        webcam.play();
+
+                        // 🎯 Create WebSocket connection when webcam is ready
+                        socket = new WebSocket('ws://' + window.location.host + '/ws/fall-detection/');
+
+                        socket.onopen = () => {
+                            console.log("✅ WebSocket connected.");
+
+                            const canvas = document.createElement('canvas');
+                            const context = canvas.getContext('2d');
+
+                            captureInterval = setInterval(() => {
+                                if (webcam.videoWidth > 0 && webcam.videoHeight > 0) {
+                                    canvas.width = webcam.videoWidth;
+                                    canvas.height = webcam.videoHeight;
+                                    context.drawImage(webcam, 0, 0, canvas.width, canvas.height);
+
+                                    canvas.toBlob(blob => {
+                                        if (socket.readyState === WebSocket.OPEN) {
+                                            const reader = new FileReader();
+                                            reader.onload = () => {
+                                                const payload = { image: reader.result };
+                                                socket.send(JSON.stringify(payload));
+                                            };
+                                            reader.readAsDataURL(blob);
+                                        }
+                                    }, 'image/jpeg');
+                                }
+                            }, 400);
+                        };
+
+                        socket.onmessage = (e) => {
+                            const data = JSON.parse(e.data);
+                            console.log("Server:", data);
+
+                            if (data.type === 'prediction') {
+                                if (data.frame) {
+                                    annotatedFeed.src = data.frame;
+                                    annotatedFeed.style.display = 'block';
+                                }
+                                predictionText.innerText = data.prediction || '';
+                                loadingText.style.display = 'none';
+                                webcamButton.style.display = 'none';
+                                closeButton.style.display = 'block';
+                            }
+                        };
+
+                        socket.onerror = (error) => {
+                            console.error("❌ WebSocket Error:", error);
+                        };
+
+                        socket.onclose = () => {
+                            console.log("🔌 WebSocket disconnected.");
+                        };
+                    };
+                })
+                .catch(err => {
+                    alert("❌ Could not access the webcam. Please allow permission.");
+                    console.error(err);
+                });
+        }
+
+        // Expose functions globally
+        window.openPopup = openPopup;
+        window.closePopup = closePopup;
+        window.startWebcam = startWebcam;
+    });
+
+    </script>
+</body>
+</html>

@@ -119,7 +119,7 @@ class PredictConsumer(WebsocketConsumer):
                 time.sleep(5)
 
     def predict_yolo(self, frame):
-        results = self.model.predict(frame, conf=0.4, iou=0.5, verbose=False)
+        results = self.model.predict(frame, conf=0.4, iou=0.4, verbose=False)
 
         fall_detected = False
         annotated = frame.copy()

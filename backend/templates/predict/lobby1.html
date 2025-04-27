@@ -54,11 +54,11 @@
         .popup {
             display: none;
             position: fixed;
-            top: 40%;
+            top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
             width: 60%;
-            max-width: 80%;
+            max-width: 70%;
             height: auto;
             max-height: 70%;
             background-color: rgba(0, 0, 0, 0.9);
@@ -120,6 +120,16 @@
         #fallSound {
             display: none;
         }
+
+        /* Fixed sizes for video and image in popup */
+        #videoContainer video,
+        #videoContainer img {
+            width: 100%;
+            max-width: 100%;
+            height: auto;
+            max-height: 400px; /* Set a max height to prevent overflow */
+            object-fit: cover; /* Maintain aspect ratio */
+        }
     </style>
 </head>
 
@@ -147,8 +157,8 @@
         <div id="videoContainer">
             <input type="text" id="rtspUrl" placeholder="Enter RTSP URL...." style="width: 100%; padding: 10px; margin-bottom: 20px;">
             <button id="connectButton" class="btn" style="width: 100%; padding: 10px; margin-top: 15px;" onclick="connectToCamera()">Connect to Camera</button>
-            <video id="webcam" autoplay muted playsinline width="60%" style="display: none;"></video>
-            <img id="annotatedFeed" width="80%" alt="Camera feed not available" style="display: none;" />
+            <video id="webcam" autoplay muted playsinline style="display: none;"></video>
+            <img id="annotatedFeed" alt="Camera feed not available" style="display: none;" />
             <p id="predictionText" style="font-size: 18px; margin-top: 10px; text-align: center;"></p>
             <p id="loadingText" style="display: none;">Loading...</p>
             <button id="closeButton" class="btn" onclick="closePopup()" style="background-color: grey; display: none;">Close</button>
@@ -180,11 +190,11 @@
             const rtspUrlInput = document.getElementById('rtspUrl');
             const fallAlarmModal = document.getElementById('fallAlarmModal');
             const fallSound = document.getElementById('fallSound');
-
+    
             let videoStream = null;
             let captureInterval = null;
             let socket = null;
-
+    
             // Function to reset the popup and button states
             function resetPopupState() {
                 rtspUrlInput.value = ''; // Clear the URL field
@@ -195,68 +205,68 @@
                 annotatedFeed.style.display = 'none'; // Hide the annotated feed
                 predictionText.innerText = ''; // Clear any predictions
             }
-
+    
             function openPopup() {
                 popup.style.display = 'flex';
                 resetPopupState(); // Reset state whenever the popup is opened
             }
-
+    
             function closePopup() {
                 popup.style.display = 'none';
-
+    
                 // Stop video and cleanup
                 if (videoStream) {
                     videoStream.getTracks().forEach(track => track.stop());
                     videoStream = null;
                 }
-
+    
                 clearInterval(captureInterval);
-
+    
                 if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
                     socket.close();
                     socket = null;
                 }
-
+    
                 resetPopupState(); // Reset state when the popup is closed
             }
-
+    
             function connectToCamera() {
                 const rtspUrl = rtspUrlInput.value.trim();
                 if (!rtspUrl) {
                     alert("❌ Please enter a valid RTSP URL.");
                     return;
                 }
-
+    
                 loadingText.style.display = 'block';
                 connectButton.disabled = true;
                 connectButton.style.display = 'none'; // Hide the "Connect to Camera" button
-
+    
                 // Simulate connection to RTSP URL (replace with actual backend connection logic)
                 setTimeout(() => {
                     console.log("Connecting to RTSP URL:", rtspUrl);
                     startWebSocket(rtspUrl);
                 }, 1000);
             }
-
+    
             function startWebSocket(rtspUrl) {
                 socket = new WebSocket('ws://' + window.location.host + '/ws/fall-detection/');
-
+    
                 socket.onopen = () => {
                     console.log("✅ WebSocket connected.");
                     socket.send(JSON.stringify({ rtspUrl }));
-
+    
                     const canvas = document.createElement('canvas');
                     const context = canvas.getContext('2d');
-
+    
                     captureInterval = setInterval(() => {
                         // Capture frames logic would go here
                     }, 400);
                 };
-
+    
                 socket.onmessage = (e) => {
                     const data = JSON.parse(e.data);
                     console.log("Server:", data);
-
+    
                     if (data.type === 'prediction') {
                         if (data.frame) {
                             annotatedFeed.src = data.frame;
@@ -267,43 +277,50 @@
                         connectButton.style.display = 'none'; // Hide the "Connect to Camera" button
                         closeButton.style.display = 'block'; // Show the "Close" button
                     }
-
+    
                     // Handle fall alarm
                     if (data.type === 'fall_alarm') {
                         triggerFallAlarm();
                     }
                 };
-
+    
                 socket.onerror = (error) => {
                     console.error("❌ WebSocket Error:", error);
                 };
-
+    
                 socket.onclose = () => {
                     console.log("🔌 WebSocket disconnected.");
                 };
             }
-
+    
             function triggerFallAlarm() {
                 // Show fall alarm modal
                 fallAlarmModal.style.display = 'block';
-
-                // Play sound alert
-                fallSound.play();
+    
+                // Play sound alert (ensure it only plays after a user interaction)
+                fallSound.currentTime = 0; // Reset sound to start
+                fallSound.play().catch(error => {
+                    console.error("❌ Error playing sound:", error);
+                });
             }
-
+    
             function dismissAlarm() {
                 // Hide the fall alarm modal
                 fallAlarmModal.style.display = 'none';
-                fallSound.pause(); // Pause the sound
+    
+                // Stop the sound
+                fallSound.pause(); 
                 fallSound.currentTime = 0; // Reset sound to start
             }
-
+    
             // Expose functions globally
             window.openPopup = openPopup;
             window.closePopup = closePopup;
             window.connectToCamera = connectToCamera;
+            window.dismissAlarm = dismissAlarm; // Ensure dismissAlarm is exposed globally
         });
     </script>
+    
 </body>
 
 </html>

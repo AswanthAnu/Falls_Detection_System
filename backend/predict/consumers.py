@@ -1,72 +1,108 @@
 import json
-
-import base64
-import torch
 import cv2
+import base64
 import numpy as np
+import torch
 from channels.generic.websocket import WebsocketConsumer
-from ultralytics import YOLO  # Required even for torchscript load
+from ultralytics import YOLO
 from pathlib import Path
+import threading
+import time
 
-# Path to the directory containing this file
-# This is used to load the YOLOv11 model from the correct path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 class PredictConsumer(WebsocketConsumer):
-
     def connect(self):
         self.accept()
+        print("🔌 WebSocket connected, waiting for RTSP URL...")
 
+        # Load YOLO model once
         try:
             model_path = BASE_DIR / "best.torchscript"
             self.model = YOLO(model_path, task='detect')
             print("✅ YOLO model loaded successfully.")
         except Exception as e:
-            print(f"❌ Error loading model: {e}")
+            print(f"❌ Error loading YOLO model: {e}")
 
-        self.send(json.dumps({
-            'type': 'connection_established',
-            'message': '🔗 WebSocket connected!'
-        }))
+        self.running = False
+        self.capture_thread = None
+
+    def disconnect(self, close_code):
+        print(f"🔌 WebSocket disconnected with code {close_code}")
+        self.running = False
+        if self.capture_thread and self.capture_thread.is_alive():
+            self.capture_thread.join()
+            print("🛑 Frame capturing thread stopped cleanly.")
 
     def receive(self, text_data):
         try:
+            data = json.loads(text_data)
+
+            if 'rtspUrl' in data:
+                rtsp_url = data['rtspUrl']
+                print(f"🎯 Received RTSP URL: {rtsp_url}")
+
+                self.running = True
+                self.capture_thread = threading.Thread(target=self.capture_frames, args=(rtsp_url,))
+                self.capture_thread.start()
+
+            else:
+                self.send(json.dumps({'type': 'error', 'message': 'RTSP URL not provided.'}))
+                print("⚠️ RTSP URL not found in message.")
+
+        except json.JSONDecodeError:
+            self.send(json.dumps({'type': 'error', 'message': 'Invalid JSON format.'}))
+            print("❌ Failed to decode JSON.")
+
+    def capture_frames(self, rtsp_url):
+        while self.running:
             try:
-                data = json.loads(text_data)
-            except json.JSONDecodeError:
-                self.send(json.dumps({'type': 'error', 'message': 'Invalid JSON format.'}))
-                return
-            base64_image = data.get('image')
+                cap = cv2.VideoCapture(rtsp_url)
 
+                if not cap.isOpened():
+                    print("❌ Unable to open RTSP stream. Retrying in 5 seconds...")
+                    self.send(json.dumps({'type': 'error', 'message': 'Cannot connect to RTSP stream.'}))
+                    time.sleep(5)
+                    continue
 
-            if not base64_image:
-                self.send(json.dumps({'type': 'error', 'message': 'No image received.'}))
-                return
+                print("🎥 RTSP stream opened successfully.")
 
-            img_data = base64.b64decode(base64_image.split(',')[1])
-            np_arr = np.frombuffer(img_data, np.uint8)
-            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                last_frame_time = 0
+                desired_fps = 2  # FPS limit to reduce server load
 
-            prediction, annotated = self.predict_yolo(frame)
+                while self.running:
+                    ret, frame = cap.read()
+                    if not ret:
+                        print("⚠️ Failed to read frame from RTSP stream. Retrying...")
+                        break  # Try reconnecting
 
-            _, buffer = cv2.imencode('.jpg', annotated)
-            encoded = base64.b64encode(buffer).decode('utf-8')
+                    # FPS Limiting
+                    now = time.time()
+                    if now - last_frame_time < 1.0 / desired_fps:
+                        continue
+                    last_frame_time = now
 
-            self.send(json.dumps({
-                'type': 'prediction',
-                'prediction': prediction,
-                'frame': f"data:image/jpeg;base64,{encoded}"
-            }))
+                    prediction, annotated_frame = self.predict_yolo(frame)
 
-        except Exception as e:
-            self.send(json.dumps({'type': 'error', 'message': f'Processing error: {e}'}))
+                    # Encode annotated frame
+                    _, buffer = cv2.imencode('.jpg', annotated_frame)
+                    jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+
+                    self.send(json.dumps({
+                        'type': 'prediction',
+                        'prediction': prediction,
+                        'frame': f"data:image/jpeg;base64,{jpg_as_text}"
+                    }))
+
+                cap.release()
+                print("🛑 RTSP stream closed, attempting to reconnect...")
+
+            except Exception as e:
+                print(f"❌ Exception in capture thread: {e}")
+                time.sleep(5)
 
     def predict_yolo(self, frame):
-        """
-        Predict fall using YOLOv11 model and annotate frame.
-        """
         results = self.model.predict(frame, conf=0.4, iou=0.5, verbose=False)
-        print("Model prediction completed.")
 
         fall_detected = False
         annotated = frame.copy()

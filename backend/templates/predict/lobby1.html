@@ -2,16 +2,85 @@
 <html lang="en">
 <head>
     {% load static %}
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Fall Detection System</title>
     <link rel="stylesheet" href="{% static 'css/lobby1.css' %}">
-
-
     <style>
         /* Add some basic styles to ensure full-screen layout */
-        
+        body, html {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        .navbar {
+            background-color: #333;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            flex: 1;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+        }
+        .left, .right {
+            flex: 1;
+            padding: 20px;
+        }
+        .right {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .btn {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 75%;
+            height: 75%;
+            background-color: rgba(0, 0, 0, 0.9);
+            color: white;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            overflow: hidden;
+            border-radius: 10px;
+        }
+        #videoContainer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+        }
+        .close-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: none;
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        footer {
+            background-color: #333;
+            color: white;
+            text-align: center;
+            padding: 1rem;
+        }
     </style>
 </head>
 <body>
@@ -23,26 +92,27 @@
             <p>Welcome to the Fall Detection System. To use this system:</p>
             <ul>
                 <li>Click the "Let's Begin" button on the right.</li>
-                <li>Allow access to your webcam when prompted.</li>
-                <li>The system will start analyzing the live feed and detect falls.</li>
+                <li>Enter the RTSP URL of your camera when prompted.</li>
+                <li>The system will start analyzing the feed and detect falls.</li>
                 <li>If a fall is detected, an alert will be triggered.</li>
             </ul>
         </div>
-
         <div class="right">
             <button class="btn" onclick="openPopup()">Let's Begin</button>
         </div>
     </div>
 
     <div id="popup" class="popup">
+        <button class="close-button" onclick="closePopup()">✖</button>
         <div id="videoContainer">
+            <input type="text" id="rtspUrl" placeholder="Enter RTSP URL...." style="width: 90%; padding: 10px; margin-bottom: 10px;">
+            <button id="connectButton" class="btn" onclick="connectToCamera()">Connect to Camera</button>
             <video id="webcam" autoplay muted playsinline width="100%" style="display: none;"></video>
             <img id="annotatedFeed" width="100%" alt="Camera feed not available" style="display: none;" />
             <p id="predictionText" style="font-size: 18px; margin-top: 10px; text-align: center;"></p>
             <p id="loadingText" style="display: none;">Loading...</p>
+            <button id="closeButton" class="btn" onclick="closePopup()" style="background-color: grey; display: none;">Close</button>
         </div>
-        <button id="webcamButton" class="btn" onclick="startWebcam()">Connect Webcam</button>
-        <button id="closeButton" class="btn" onclick="closePopup()" style="background-color: grey; display: none;">Close</button>
     </div>
 
     <footer>
@@ -52,123 +122,113 @@
 
     <script>
         document.addEventListener('DOMContentLoaded', () => {
-        const popup = document.getElementById('popup');
-        const webcam = document.getElementById('webcam');
-        const annotatedFeed = document.getElementById('annotatedFeed');
-        const predictionText = document.getElementById('predictionText');
-        const loadingText = document.getElementById('loadingText');
-        const webcamButton = document.getElementById('webcamButton');
-        const closeButton = document.getElementById('closeButton');
+            const popup = document.getElementById('popup');
+            const webcam = document.getElementById('webcam');
+            const annotatedFeed = document.getElementById('annotatedFeed');
+            const predictionText = document.getElementById('predictionText');
+            const loadingText = document.getElementById('loadingText');
+            const connectButton = document.getElementById('connectButton');
+            const closeButton = document.getElementById('closeButton');
+            const rtspUrlInput = document.getElementById('rtspUrl');
 
-        let videoStream = null;
-        let captureInterval = null;
-        let socket = null; // 🆕 We'll create socket dynamically
+            let videoStream = null;
+            let captureInterval = null;
+            let socket = null;
 
-        function openPopup() {
-            popup.style.display = 'flex';
-            closeButton.style.display = 'none';
-            webcamButton.style.display = 'block';
-            webcamButton.disabled = false;
-        }
-
-        function closePopup() {
-            popup.style.display = 'none';
-
-            if (videoStream) {
-                videoStream.getTracks().forEach(track => track.stop());
-                videoStream = null;
+            function openPopup() {
+                popup.style.display = 'flex';
+                closeButton.style.display = 'none';
+                rtspUrlInput.value = ''; // Clear the input field
+                loadingText.style.display = 'none';
+                annotatedFeed.style.display = 'none';
+                predictionText.innerText = '';
             }
 
-            clearInterval(captureInterval);
+            function closePopup() {
+                popup.style.display = 'none';
 
-            if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
-                socket.close();
-                socket = null;
+                if (videoStream) {
+                    videoStream.getTracks().forEach(track => track.stop());
+                    videoStream = null;
+                }
+
+                clearInterval(captureInterval);
+
+                if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+                    socket.close();
+                    socket = null;
+                }
+
+                annotatedFeed.style.display = 'none';
+                predictionText.innerText = '';
             }
 
-            annotatedFeed.style.display = 'none';
-            predictionText.innerText = '';
-        }
+            function connectToCamera() {
+                const rtspUrl = rtspUrlInput.value.trim();
+                if (!rtspUrl) {
+                    alert("❌ Please enter a valid RTSP URL.");
+                    return;
+                }
 
-        function startWebcam() {
-            loadingText.style.display = 'block';
-            webcamButton.disabled = true;
+                loadingText.style.display = 'block';
+                connectButton.disabled = true;
 
-            navigator.mediaDevices.getUserMedia({ video: true })
-                .then(stream => {
-                    webcam.srcObject = stream;
-                    videoStream = stream;
-                    webcam.style.display = 'none'; // Keep webcam hidden
+                // Simulating connection to RTSP URL (replace with actual backend connection logic)
+                setTimeout(() => {
+                    // Here you would implement the logic to connect to the RTSP feed and start capturing frames
+                    console.log("Connecting to RTSP URL:", rtspUrl);
+                    // Assume connection is successful and start the WebSocket as before
+                    startWebSocket(rtspUrl);
+                }, 1000);
+            }
 
-                    webcam.onloadedmetadata = () => {
-                        webcam.play();
+            function startWebSocket(rtspUrl) {
+                // Create WebSocket connection
+                socket = new WebSocket('ws://' + window.location.host + '/ws/fall-detection/');
 
-                        // 🎯 Create WebSocket connection when webcam is ready
-                        socket = new WebSocket('ws://' + window.location.host + '/ws/fall-detection/');
+                socket.onopen = () => {
+                    console.log("✅ WebSocket connected.");
+                    // Here you would send the RTSP URL to the backend
+                    socket.send(JSON.stringify({ rtspUrl }));
 
-                        socket.onopen = () => {
-                            console.log("✅ WebSocket connected.");
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
 
-                            const canvas = document.createElement('canvas');
-                            const context = canvas.getContext('2d');
+                    captureInterval = setInterval(() => {
+                        // Capture frames logic would go here
+                    }, 400);
+                };
 
-                            captureInterval = setInterval(() => {
-                                if (webcam.videoWidth > 0 && webcam.videoHeight > 0) {
-                                    canvas.width = webcam.videoWidth;
-                                    canvas.height = webcam.videoHeight;
-                                    context.drawImage(webcam, 0, 0, canvas.width, canvas.height);
+                socket.onmessage = (e) => {
+                    const data = JSON.parse(e.data);
+                    console.log("Server:", data);
 
-                                    canvas.toBlob(blob => {
-                                        if (socket.readyState === WebSocket.OPEN) {
-                                            const reader = new FileReader();
-                                            reader.onload = () => {
-                                                const payload = { image: reader.result };
-                                                socket.send(JSON.stringify(payload));
-                                            };
-                                            reader.readAsDataURL(blob);
-                                        }
-                                    }, 'image/jpeg');
-                                }
-                            }, 400);
-                        };
+                    if (data.type === 'prediction') {
+                        if (data.frame) {
+                            annotatedFeed.src = data.frame;
+                            annotatedFeed.style.display = 'block';
+                        }
+                        predictionText.innerText = data.prediction || '';
+                        loadingText.style.display = 'none';
+                        connectButton.style.display = 'none';
+                        closeButton.style.display = 'block';
+                    }
+                };
 
-                        socket.onmessage = (e) => {
-                            const data = JSON.parse(e.data);
-                            console.log("Server:", data);
+                socket.onerror = (error) => {
+                    console.error("❌ WebSocket Error:", error);
+                };
 
-                            if (data.type === 'prediction') {
-                                if (data.frame) {
-                                    annotatedFeed.src = data.frame;
-                                    annotatedFeed.style.display = 'block';
-                                }
-                                predictionText.innerText = data.prediction || '';
-                                loadingText.style.display = 'none';
-                                webcamButton.style.display = 'none';
-                                closeButton.style.display = 'block';
-                            }
-                        };
+                socket.onclose = () => {
+                    console.log("🔌 WebSocket disconnected.");
+                };
+            }
 
-                        socket.onerror = (error) => {
-                            console.error("❌ WebSocket Error:", error);
-                        };
-
-                        socket.onclose = () => {
-                            console.log("🔌 WebSocket disconnected.");
-                        };
-                    };
-                })
-                .catch(err => {
-                    alert("❌ Could not access the webcam. Please allow permission.");
-                    console.error(err);
-                });
-        }
-
-        // Expose functions globally
-        window.openPopup = openPopup;
-        window.closePopup = closePopup;
-        window.startWebcam = startWebcam;
-    });
-
+            // Expose functions globally
+            window.openPopup = openPopup;
+            window.closePopup = closePopup;
+            window.connectToCamera = connectToCamera;
+        });
     </script>
 </body>
 </html>

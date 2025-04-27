@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     {% load static %}
     <meta charset="UTF-8">
@@ -8,19 +9,22 @@
     <link rel="stylesheet" href="{% static 'css/lobby1.css' %}">
     <style>
         /* Add some basic styles to ensure full-screen layout */
-        body, html {
+        body,
+        html {
             margin: 0;
             padding: 0;
             height: 100%;
             display: flex;
             flex-direction: column;
         }
+
         .navbar {
             background-color: #333;
             color: white;
             padding: 1rem;
             text-align: center;
         }
+
         .container {
             display: flex;
             flex: 1;
@@ -28,28 +32,35 @@
             align-items: center;
             padding: 20px;
         }
-        .left, .right {
+
+        .left,
+        .right {
             flex: 1;
             padding: 20px;
         }
+
         .right {
             display: flex;
             justify-content: center;
             align-items: center;
         }
+
         .btn {
             padding: 10px 20px;
             font-size: 16px;
             cursor: pointer;
         }
+
         .popup {
             display: none;
             position: fixed;
-            top: 50%;
+            top: 40%;
             left: 50%;
             transform: translate(-50%, -50%);
-            width: 75%;
-            height: 75%;
+            width: 60%;
+            max-width: 80%;
+            height: auto;
+            max-height: 70%;
             background-color: rgba(0, 0, 0, 0.9);
             color: white;
             justify-content: center;
@@ -57,32 +68,61 @@
             flex-direction: column;
             overflow: hidden;
             border-radius: 10px;
+            padding: 20px;
         }
-        #videoContainer {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            width: 100%;
-            height: 100%;
-        }
+
         .close-button {
             position: absolute;
-            top: 20px;
-            right: 20px;
+            top: 10px;
+            right: 10px;
             background: none;
             border: none;
             color: white;
             font-size: 24px;
             cursor: pointer;
         }
+
+        /* Fall Detection Alarm Modal */
+        .fall-alarm-modal {
+            display: none;
+            position: fixed;
+            top: 20%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: red;
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 1000;
+            font-size: 24px;
+            text-align: center;
+            width: 70%;
+        }
+
+        .fall-alarm-modal button {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background-color: white;
+            color: red;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+        }
+
         footer {
             background-color: #333;
             color: white;
             text-align: center;
             padding: 1rem;
         }
+
+        /* Sound Alert */
+        #fallSound {
+            display: none;
+        }
     </style>
 </head>
+
 <body>
     <div class="navbar">Fall Detection System</div>
 
@@ -98,22 +138,31 @@
             </ul>
         </div>
         <div class="right">
-            <button class="btn" onclick="openPopup()">Let's Begin</button>
+            <button id="letsBeginButton" class="btn" onclick="openPopup()">Let's Begin</button>
         </div>
     </div>
 
     <div id="popup" class="popup">
         <button class="close-button" onclick="closePopup()">✖</button>
         <div id="videoContainer">
-            <input type="text" id="rtspUrl" placeholder="Enter RTSP URL...." style="width: 90%; padding: 10px; margin-bottom: 10px;">
-            <button id="connectButton" class="btn" onclick="connectToCamera()">Connect to Camera</button>
-            <video id="webcam" autoplay muted playsinline width="100%" style="display: none;"></video>
-            <img id="annotatedFeed" width="100%" alt="Camera feed not available" style="display: none;" />
+            <input type="text" id="rtspUrl" placeholder="Enter RTSP URL...." style="width: 100%; padding: 10px; margin-bottom: 20px;">
+            <button id="connectButton" class="btn" style="width: 100%; padding: 10px; margin-top: 15px;" onclick="connectToCamera()">Connect to Camera</button>
+            <video id="webcam" autoplay muted playsinline width="60%" style="display: none;"></video>
+            <img id="annotatedFeed" width="80%" alt="Camera feed not available" style="display: none;" />
             <p id="predictionText" style="font-size: 18px; margin-top: 10px; text-align: center;"></p>
             <p id="loadingText" style="display: none;">Loading...</p>
             <button id="closeButton" class="btn" onclick="closePopup()" style="background-color: grey; display: none;">Close</button>
         </div>
     </div>
+
+    <!-- Fall Detection Alarm Modal -->
+    <div id="fallAlarmModal" class="fall-alarm-modal">
+        <p>❗ FALL DETECTED! ❗</p>
+        <button onclick="dismissAlarm()">Dismiss</button>
+    </div>
+
+    <!-- Sound Alert -->
+    <audio id="fallSound" src="{% static 'sounds/fall_alarm.mp3' %}" preload="auto" loop></audio>
 
     <footer>
         <p>This is just a prototype website for the Fall Detection System.</p>
@@ -123,30 +172,39 @@
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const popup = document.getElementById('popup');
-            const webcam = document.getElementById('webcam');
             const annotatedFeed = document.getElementById('annotatedFeed');
             const predictionText = document.getElementById('predictionText');
             const loadingText = document.getElementById('loadingText');
             const connectButton = document.getElementById('connectButton');
             const closeButton = document.getElementById('closeButton');
             const rtspUrlInput = document.getElementById('rtspUrl');
+            const fallAlarmModal = document.getElementById('fallAlarmModal');
+            const fallSound = document.getElementById('fallSound');
 
             let videoStream = null;
             let captureInterval = null;
             let socket = null;
 
+            // Function to reset the popup and button states
+            function resetPopupState() {
+                rtspUrlInput.value = ''; // Clear the URL field
+                connectButton.disabled = false; // Enable the connect button
+                connectButton.style.display = 'block'; // Show the "Connect to Camera" button
+                closeButton.style.display = 'none'; // Hide the "Close" button
+                loadingText.style.display = 'none'; // Hide the loading text
+                annotatedFeed.style.display = 'none'; // Hide the annotated feed
+                predictionText.innerText = ''; // Clear any predictions
+            }
+
             function openPopup() {
                 popup.style.display = 'flex';
-                closeButton.style.display = 'none';
-                rtspUrlInput.value = ''; // Clear the input field
-                loadingText.style.display = 'none';
-                annotatedFeed.style.display = 'none';
-                predictionText.innerText = '';
+                resetPopupState(); // Reset state whenever the popup is opened
             }
 
             function closePopup() {
                 popup.style.display = 'none';
 
+                // Stop video and cleanup
                 if (videoStream) {
                     videoStream.getTracks().forEach(track => track.stop());
                     videoStream = null;
@@ -159,8 +217,7 @@
                     socket = null;
                 }
 
-                annotatedFeed.style.display = 'none';
-                predictionText.innerText = '';
+                resetPopupState(); // Reset state when the popup is closed
             }
 
             function connectToCamera() {
@@ -172,23 +229,20 @@
 
                 loadingText.style.display = 'block';
                 connectButton.disabled = true;
+                connectButton.style.display = 'none'; // Hide the "Connect to Camera" button
 
-                // Simulating connection to RTSP URL (replace with actual backend connection logic)
+                // Simulate connection to RTSP URL (replace with actual backend connection logic)
                 setTimeout(() => {
-                    // Here you would implement the logic to connect to the RTSP feed and start capturing frames
                     console.log("Connecting to RTSP URL:", rtspUrl);
-                    // Assume connection is successful and start the WebSocket as before
                     startWebSocket(rtspUrl);
                 }, 1000);
             }
 
             function startWebSocket(rtspUrl) {
-                // Create WebSocket connection
                 socket = new WebSocket('ws://' + window.location.host + '/ws/fall-detection/');
 
                 socket.onopen = () => {
                     console.log("✅ WebSocket connected.");
-                    // Here you would send the RTSP URL to the backend
                     socket.send(JSON.stringify({ rtspUrl }));
 
                     const canvas = document.createElement('canvas');
@@ -210,8 +264,13 @@
                         }
                         predictionText.innerText = data.prediction || '';
                         loadingText.style.display = 'none';
-                        connectButton.style.display = 'none';
-                        closeButton.style.display = 'block';
+                        connectButton.style.display = 'none'; // Hide the "Connect to Camera" button
+                        closeButton.style.display = 'block'; // Show the "Close" button
+                    }
+
+                    // Handle fall alarm
+                    if (data.type === 'fall_alarm') {
+                        triggerFallAlarm();
                     }
                 };
 
@@ -224,6 +283,21 @@
                 };
             }
 
+            function triggerFallAlarm() {
+                // Show fall alarm modal
+                fallAlarmModal.style.display = 'block';
+
+                // Play sound alert
+                fallSound.play();
+            }
+
+            function dismissAlarm() {
+                // Hide the fall alarm modal
+                fallAlarmModal.style.display = 'none';
+                fallSound.pause(); // Pause the sound
+                fallSound.currentTime = 0; // Reset sound to start
+            }
+
             // Expose functions globally
             window.openPopup = openPopup;
             window.closePopup = closePopup;
@@ -231,4 +305,5 @@
         });
     </script>
 </body>
+
 </html>

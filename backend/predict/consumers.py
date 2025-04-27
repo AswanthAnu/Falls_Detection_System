@@ -1,13 +1,12 @@
 import json
 import cv2
 import base64
-import numpy as np
-import torch
+import time
+import threading
 from channels.generic.websocket import WebsocketConsumer
 from ultralytics import YOLO
 from pathlib import Path
-import threading
-import time
+from .fall_detection_logic import FallDetection
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -23,6 +22,9 @@ class PredictConsumer(WebsocketConsumer):
             print("✅ YOLO model loaded successfully.")
         except Exception as e:
             print(f"❌ Error loading YOLO model: {e}")
+
+        # Initialize fall detection system
+        self.fall_detection = FallDetection()
 
         self.running = False
         self.capture_thread = None
@@ -87,6 +89,21 @@ class PredictConsumer(WebsocketConsumer):
                     # Encode annotated frame
                     _, buffer = cv2.imencode('.jpg', annotated_frame)
                     jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+
+                    # Process the fall detection logic
+                    if prediction == "Fall Detected!":
+                        self.fall_detection.add_frame(True)
+                    else:
+                        self.fall_detection.add_frame(False)
+
+                    if self.fall_detection.can_detect_fall():
+                        if self.fall_detection.should_trigger_alarm():
+                            self.fall_detection.record_fall()
+                            self.send(json.dumps({
+                                'type': 'fall_alarm',
+                                'message': "ALERT: Fall Detected!",
+                                'frame': f"data:image/jpeg;base64,{jpg_as_text}"
+                            }))
 
                     self.send(json.dumps({
                         'type': 'prediction',

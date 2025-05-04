@@ -1,7 +1,7 @@
 import time
 
 class FallDetection:
-    def __init__(self, fall_threshold=0.75, cooldown_time=15, max_frames=10):
+    def __init__(self, fall_threshold=0.75, cooldown_time=10, max_frames=100):
         self.fall_threshold = fall_threshold  # Threshold for how many frames must be "fall" to trigger an alarm
         self.cooldown_time = cooldown_time  # Time to wait before allowing another fall detection
         self.max_frames = max_frames  # Number of frames to consider for prediction

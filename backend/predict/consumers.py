@@ -19,9 +19,9 @@ class PredictConsumer(WebsocketConsumer):
         try:
             model_path = BASE_DIR / "best.torchscript"
             self.model = YOLO(model_path, task='detect')
-            print("✅ YOLO model loaded successfully.")
+            print("YOLO model loaded successfully.")
         except Exception as e:
-            print(f"❌ Error loading YOLO model: {e}")
+            print(f"Error loading YOLO model: {e}")
 
         # Initialize fall detection system
         self.fall_detection = FallDetection()
@@ -34,7 +34,7 @@ class PredictConsumer(WebsocketConsumer):
         self.running = False
         if self.capture_thread and self.capture_thread.is_alive():
             self.capture_thread.join()
-            print("🛑 Frame capturing thread stopped cleanly.")
+            print("Frame capturing thread stopped cleanly.")
 
     def receive(self, text_data):
         try:
@@ -42,7 +42,7 @@ class PredictConsumer(WebsocketConsumer):
 
             if 'rtspUrl' in data:
                 rtsp_url = data['rtspUrl']
-                print(f"🎯 Received RTSP URL: {rtsp_url}")
+                print(f"Received RTSP URL: {rtsp_url}")
 
                 self.running = True
                 self.capture_thread = threading.Thread(target=self.capture_frames, args=(rtsp_url,))
@@ -50,11 +50,11 @@ class PredictConsumer(WebsocketConsumer):
 
             else:
                 self.send(json.dumps({'type': 'error', 'message': 'RTSP URL not provided.'}))
-                print("⚠️ RTSP URL not found in message.")
+                print("RTSP URL not found in message.")
 
         except json.JSONDecodeError:
             self.send(json.dumps({'type': 'error', 'message': 'Invalid JSON format.'}))
-            print("❌ Failed to decode JSON.")
+            print("Failed to decode JSON.")
 
     def capture_frames(self, rtsp_url):
         while self.running:
@@ -62,12 +62,12 @@ class PredictConsumer(WebsocketConsumer):
                 cap = cv2.VideoCapture(rtsp_url)
 
                 if not cap.isOpened():
-                    print("❌ Unable to open RTSP stream. Retrying in 5 seconds...")
+                    print("Unable to open RTSP stream. Retrying in 5 seconds...")
                     self.send(json.dumps({'type': 'error', 'message': 'Cannot connect to RTSP stream.'}))
                     time.sleep(5)
                     continue
 
-                print("🎥 RTSP stream opened successfully.")
+                print("RTSP stream opened successfully.")
 
                 last_frame_time = 0
                 desired_fps = 2  # FPS limit to reduce server load
@@ -75,7 +75,7 @@ class PredictConsumer(WebsocketConsumer):
                 while self.running:
                     ret, frame = cap.read()
                     if not ret:
-                        print("⚠️ Failed to read frame from RTSP stream. Retrying...")
+                        print("Failed to read frame from RTSP stream. Retrying...")
                         break  # Try reconnecting
 
                     # FPS Limiting
@@ -112,10 +112,10 @@ class PredictConsumer(WebsocketConsumer):
                     }))
 
                 cap.release()
-                print("🛑 RTSP stream closed, attempting to reconnect...")
+                print("RTSP stream closed, attempting to reconnect...")
 
             except Exception as e:
-                print(f"❌ Exception in capture thread: {e}")
+                print(f"Exception in capture thread: {e}")
                 time.sleep(5)
 
     def predict_yolo(self, frame):
